@@ -1,0 +1,16 @@
+package helpers
+
+import "golang.org/x/crypto/bcrypt"
+
+func HashPassword(plain string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+
+	return string(hash), nil
+}
+
+func CheckPasswordHash(plain, hashed string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hashed), []byte(plain))
+}

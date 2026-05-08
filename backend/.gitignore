@@ -1,0 +1,30 @@
+# Environment files (do not commit secrets)
+.env
+
+# Binaries and compiled outputs
+*.exe
+*.dll
+*.out
+cmd/**/bin/
+cmd/**/dist/
+
+# Go build cache
+*.test
+*.prof
+
+# Dependencies
+vendor/
+
+# Logs
+*.log
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.swp
+*~
