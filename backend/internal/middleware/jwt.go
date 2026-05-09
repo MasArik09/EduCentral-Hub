@@ -47,7 +47,49 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+			return
+		}
+
+		if userID, ok := getUintClaim(claims, "user_id"); ok {
+			c.Set("user_id", userID)
+		}
+
+		if role, ok := claims["role"].(string); ok {
+			c.Set("role", role)
+		}
+
+		if roleID, ok := getUintClaim(claims, "role_id"); ok {
+			c.Set("role_id", roleID)
+		}
+
 		c.Set("jwt", token)
 		c.Next()
+	}
+}
+
+func getUintClaim(claims jwt.MapClaims, key string) (uint, bool) {
+	value, ok := claims[key]
+	if !ok {
+		return 0, false
+	}
+
+	switch typed := value.(type) {
+	case float64:
+		return uint(typed), true
+	case float32:
+		return uint(typed), true
+	case int:
+		return uint(typed), true
+	case int64:
+		return uint(typed), true
+	case uint:
+		return typed, true
+	case uint64:
+		return uint(typed), true
+	default:
+		return 0, false
 	}
 }

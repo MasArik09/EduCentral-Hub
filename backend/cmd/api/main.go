@@ -6,6 +6,7 @@ import (
 
 	"backend/config"
 	"backend/internal/handler"
+	"backend/internal/middleware"
 	"backend/internal/repository"
 	"backend/internal/usecase"
 
@@ -23,6 +24,9 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	authUsecase := usecase.NewAuthUsecase(userRepo)
 	authHandler := handler.NewAuthHandler(authUsecase)
+	courseRepo := repository.NewCourseRepository(db)
+	courseUsecase := usecase.NewCourseUsecase(courseRepo)
+	courseHandler := handler.NewCourseHandler(courseUsecase)
 
 	router.GET("/health", func(c *gin.Context) {
 		sqlDB, err := db.DB()
@@ -42,6 +46,11 @@ func main() {
 	authGroup := router.Group("/api/auth")
 	authGroup.POST("/register", authHandler.Register)
 	authGroup.POST("/login", authHandler.Login)
+
+	courseGroup := router.Group("/api/courses")
+	courseGroup.GET("/:id", courseHandler.GetCourseDetails)
+	courseGroup.POST("", middleware.JWTAuthMiddleware(), courseHandler.CreateCourse)
+	courseGroup.POST("/:id/enroll", middleware.JWTAuthMiddleware(), courseHandler.EnrollCourse)
 
 	if err := router.Run(); err != nil {
 		log.Fatalf("server start failed: %v", err)
