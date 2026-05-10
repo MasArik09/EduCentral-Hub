@@ -27,6 +27,12 @@ func main() {
 	courseRepo := repository.NewCourseRepository(db)
 	courseUsecase := usecase.NewCourseUsecase(courseRepo)
 	courseHandler := handler.NewCourseHandler(courseUsecase)
+	lessonRepo := repository.NewLessonRepository(db)
+	lessonUsecase := usecase.NewLessonUsecase(lessonRepo)
+	lessonHandler := handler.NewLessonHandler(lessonUsecase)
+	attendanceRepo := repository.NewAttendanceRepository(db)
+	attendanceUsecase := usecase.NewAttendanceUsecase(attendanceRepo)
+	attendanceHandler := handler.NewAttendanceHandler(attendanceUsecase)
 
 	router.GET("/health", func(c *gin.Context) {
 		sqlDB, err := db.DB()
@@ -51,6 +57,13 @@ func main() {
 	courseGroup.GET("/:id", courseHandler.GetCourseDetails)
 	courseGroup.POST("", middleware.JWTAuthMiddleware(), courseHandler.CreateCourse)
 	courseGroup.POST("/:id/enroll", middleware.JWTAuthMiddleware(), courseHandler.EnrollCourse)
+	courseGroup.POST("/:id/lessons", middleware.JWTAuthMiddleware(), lessonHandler.CreateLesson)
+	courseGroup.GET("/:id/lessons", middleware.JWTAuthMiddleware(), lessonHandler.ListLessonsByCourse)
+	courseGroup.POST("/:id/attendance", middleware.JWTAuthMiddleware(), attendanceHandler.MarkAttendance)
+	courseGroup.GET("/:id/my-attendance", middleware.JWTAuthMiddleware(), attendanceHandler.ListMyAttendance)
+
+	lessonGroup := router.Group("/api/lessons")
+	lessonGroup.GET("/:lesson_id", middleware.JWTAuthMiddleware(), lessonHandler.GetLessonDetail)
 
 	if err := router.Run(); err != nil {
 		log.Fatalf("server start failed: %v", err)
