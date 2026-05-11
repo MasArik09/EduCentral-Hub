@@ -53,7 +53,7 @@ func (h *LessonHandler) CreateLesson(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, usecase.ErrLessonUnauthorizedCreate) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "only admin or course teacher can create lessons"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized: Access restricted to teaching staff only"})
 			return
 		}
 

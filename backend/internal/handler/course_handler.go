@@ -59,7 +59,7 @@ func (h *CourseHandler) CreateCourse(c *gin.Context) {
 	course, err := h.usecase.CreateCourse(userID, role, req.Title, req.Description, lessons)
 	if err != nil {
 		if errors.Is(err, usecase.ErrUnauthorizedCourseCreation) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "only admin or guru can create courses"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized: Access restricted to teaching staff only"})
 			return
 		}
 

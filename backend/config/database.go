@@ -18,7 +18,7 @@ func InitDB() (*gorm.DB, error) {
 	port := getEnv("DB_PORT", "3306")
 	user := getEnv("DB_USER", "root")
 	pass := getEnv("DB_PASS", "")
-	name := getEnv("DB_NAME", "educentral_db")
+	name := "educentral_db"
 
 	dsn := fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",

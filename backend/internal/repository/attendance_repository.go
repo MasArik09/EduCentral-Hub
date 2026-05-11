@@ -21,6 +21,14 @@ func (r *AttendanceRepository) CreateAttendance(attendance *models.Attendance) e
 	return r.db.Create(attendance).Error
 }
 
+func (r *AttendanceRepository) CreateAttendances(attendances []models.Attendance) error {
+	if len(attendances) == 0 {
+		return nil
+	}
+
+	return r.db.Create(&attendances).Error
+}
+
 func (r *AttendanceRepository) AttendanceExists(userID, courseID uint, date time.Time) (bool, error) {
 	var attendance models.Attendance
 	if err := r.db.Where("user_id = ? AND course_id = ? AND date = ?", userID, courseID, date).First(&attendance).Error; err != nil {
