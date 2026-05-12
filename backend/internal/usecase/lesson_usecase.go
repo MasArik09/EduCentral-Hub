@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"errors"
-	"strings"
 
 	"backend/internal/models"
 	"backend/internal/repository"
@@ -107,9 +106,4 @@ func (u *LessonUsecase) canViewLessons(userID uint, role string, course *models.
 
 func isLessonCreatorAllowed(role string, userID, teacherID uint) bool {
 	return isAdminRole(role) || userID == teacherID
-}
-
-func isAdminRole(role string) bool {
-	role = strings.ToLower(strings.TrimSpace(role))
-	return role == "admin"
 }

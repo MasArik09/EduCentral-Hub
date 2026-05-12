@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"errors"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -17,25 +20,27 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		authHeader := c.GetHeader("Authorization")
+		authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
 		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header must be Bearer token"})
-			return
+		tokenStr := authHeader
+		for i := 0; i < 2; i++ {
+			if strings.HasPrefix(strings.ToLower(tokenStr), "bearer ") {
+				tokenStr = strings.TrimSpace(tokenStr[len("bearer "):])
+				continue
+			}
+			break
 		}
-
-		tokenStr := strings.TrimSpace(parts[1])
 		if tokenStr == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Bearer token is required"})
 			return
 		}
 
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		parser := jwt.NewParser(jwt.WithLeeway(2 * time.Minute))
+		token, err := parser.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, jwt.ErrTokenSignatureInvalid
 			}
@@ -43,6 +48,7 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return []byte(secret), nil
 		})
 		if err != nil || !token.Valid {
+			logJWTError(err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			return
 		}
@@ -67,6 +73,26 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 
 		c.Set("jwt", token)
 		c.Next()
+	}
+}
+
+func logJWTError(err error) {
+	if err == nil {
+		log.Printf("jwt validation failed: token invalid")
+		return
+	}
+
+	switch {
+	case errors.Is(err, jwt.ErrTokenExpired):
+		log.Printf("jwt validation failed: token expired (%v)", err)
+	case errors.Is(err, jwt.ErrTokenSignatureInvalid):
+		log.Printf("jwt validation failed: signature mismatch (%v)", err)
+	case errors.Is(err, jwt.ErrTokenMalformed):
+		log.Printf("jwt validation failed: malformed token (%v)", err)
+	case errors.Is(err, jwt.ErrTokenNotValidYet):
+		log.Printf("jwt validation failed: token not valid yet (%v)", err)
+	default:
+		log.Printf("jwt validation failed: %v", err)
 	}
 }
 

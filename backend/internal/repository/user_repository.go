@@ -31,3 +31,15 @@ func (r *UserRepository) FindByEmail(email string) (*models.User, error) {
 
 	return &user, nil
 }
+
+func (r *UserRepository) UpdateProfilePicture(userID uint, path string) error {
+	result := r.db.Model(&models.User{}).Where("id = ?", userID).Update("profile_picture", path)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+
+	return nil
+}
