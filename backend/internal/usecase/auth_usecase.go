@@ -2,28 +2,27 @@ package usecase
 
 import (
 	"errors"
-	"os"
-	"time"
 
+	"backend/internal/auth"
 	"backend/internal/helpers"
 	"backend/internal/models"
 	"backend/internal/repository"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
-	ErrEmailAlreadyUsed   = errors.New("email already used")
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrMissingJWTSecret   = errors.New("jwt secret is not configured")
+	ErrEmailAlreadyUsed    = errors.New("email already used")
+	ErrInvalidCredentials  = errors.New("invalid credentials")
+	ErrMissingJWTSecret    = errors.New("jwt secret is not configured")
+	ErrInvalidRefreshToken = errors.New("invalid refresh token")
 )
 
 type AuthUsecase struct {
-	userRepo *repository.UserRepository
+	userRepo     *repository.UserRepository
+	tokenService *auth.TokenService
 }
 
-func NewAuthUsecase(userRepo *repository.UserRepository) *AuthUsecase {
-	return &AuthUsecase{userRepo: userRepo}
+func NewAuthUsecase(userRepo *repository.UserRepository, tokenService *auth.TokenService) *AuthUsecase {
+	return &AuthUsecase{userRepo: userRepo, tokenService: tokenService}
 }
 
 func (u *AuthUsecase) Register(username, email, password string, roleID uint) (*models.User, error) {
@@ -58,32 +57,56 @@ func (u *AuthUsecase) Register(username, email, password string, roleID uint) (*
 	return user, nil
 }
 
-func (u *AuthUsecase) Login(email, password string) (string, error) {
+func (u *AuthUsecase) Login(email, password string) (auth.TokenPair, error) {
 	user, err := u.userRepo.FindByEmail(email)
 	if err != nil {
-		return "", err
+		return auth.TokenPair{}, err
 	}
 	if user == nil {
-		return "", ErrInvalidCredentials
+		return auth.TokenPair{}, ErrInvalidCredentials
 	}
 
 	if err := helpers.CheckPasswordHash(password, user.Password); err != nil {
-		return "", ErrInvalidCredentials
+		return auth.TokenPair{}, ErrInvalidCredentials
 	}
 
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return "", ErrMissingJWTSecret
+	identity := auth.NewTokenIdentityFromUser(user)
+	pair, err := u.tokenService.IssueTokenPair(identity)
+	if err != nil {
+		if errors.Is(err, auth.ErrMissingSecret) {
+			return auth.TokenPair{}, ErrMissingJWTSecret
+		}
+		return auth.TokenPair{}, err
 	}
 
-	claims := jwt.MapClaims{
-		"user_id": user.ID,
-		"email":   user.Email,
-		"role":    user.Role.Name,
-		"role_id": user.RoleID,
-		"exp":     time.Now().Add(24 * time.Hour).Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return pair, nil
+}
 
-	return token.SignedString([]byte(secret))
+func (u *AuthUsecase) Refresh(refreshToken string) (auth.TokenPair, error) {
+	if refreshToken == "" {
+		return auth.TokenPair{}, ErrInvalidRefreshToken
+	}
+
+	identity, err := u.tokenService.ValidateRefreshToken(refreshToken)
+	if err != nil {
+		return auth.TokenPair{}, ErrInvalidRefreshToken
+	}
+
+	u.tokenService.RevokeRefreshToken(refreshToken)
+	pair, err := u.tokenService.IssueTokenPair(identity)
+	if err != nil {
+		if errors.Is(err, auth.ErrMissingSecret) {
+			return auth.TokenPair{}, ErrMissingJWTSecret
+		}
+		return auth.TokenPair{}, err
+	}
+
+	return pair, nil
+}
+
+func (u *AuthUsecase) Logout(accessJTI, refreshToken string) {
+	u.tokenService.BlacklistAccessToken(accessJTI)
+	if refreshToken != "" {
+		u.tokenService.RevokeRefreshToken(refreshToken)
+	}
 }

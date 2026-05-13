@@ -4,18 +4,20 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
+
+	"backend/internal/auth"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func JWTAuthMiddleware() gin.HandlerFunc {
+const accessRefreshThreshold = 5 * time.Minute
+
+func JWTAuthMiddleware(tokenService *auth.TokenService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		secret := os.Getenv("JWT_SECRET")
-		if secret == "" {
+		if tokenService == nil || !tokenService.HasSecret() {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "JWT secret is not configured"})
 			return
 		}
@@ -45,9 +47,41 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 				return nil, jwt.ErrTokenSignatureInvalid
 			}
 
-			return []byte(secret), nil
+			return []byte(tokenService.Secret()), nil
 		})
-		if err != nil || !token.Valid {
+		if err != nil {
+			if errors.Is(err, jwt.ErrTokenExpired) {
+				if token == nil {
+					logJWTError(err)
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+					return
+				}
+
+				claims, ok := token.Claims.(jwt.MapClaims)
+				if !ok {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+					return
+				}
+
+				if deny, inGrace := tokenService.CheckAccessTokenLogout(getStringClaim(claims, "jti")); deny || inGrace {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+					return
+				}
+
+				if refreshed := refreshAccessToken(c, tokenService); !refreshed {
+					logJWTError(err)
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+					return
+				}
+				c.Next()
+				return
+			}
+
+			logJWTError(err)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			return
+		}
+		if !token.Valid {
 			logJWTError(err)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			return
@@ -59,19 +93,22 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		if userID, ok := getUintClaim(claims, "user_id"); ok {
-			c.Set("user_id", userID)
+		log.Printf("User Claims: ID=%v, Role=%v", claims["user_id"], claims["role"])
+
+		jti := getStringClaim(claims, "jti")
+		deny, inGrace := tokenService.CheckAccessTokenLogout(jti)
+		if deny {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			return
 		}
 
-		if role, ok := claims["role"].(string); ok {
-			c.Set("role", role)
-		}
-
-		if roleID, ok := getUintClaim(claims, "role_id"); ok {
-			c.Set("role_id", roleID)
-		}
-
+		setAuthContextFromClaims(c, claims, jti)
 		c.Set("jwt", token)
+
+		if !inGrace && shouldRefreshAccessToken(claims) {
+			_ = refreshAccessToken(c, tokenService)
+		}
+
 		c.Next()
 	}
 }
@@ -94,6 +131,100 @@ func logJWTError(err error) {
 	default:
 		log.Printf("jwt validation failed: %v", err)
 	}
+}
+
+func refreshAccessToken(c *gin.Context, tokenService *auth.TokenService) bool {
+	refreshToken, err := c.Cookie(auth.RefreshTokenCookieName)
+	if err != nil || refreshToken == "" {
+		return false
+	}
+
+	access, identity, err := tokenService.RefreshAccessToken(refreshToken)
+	if err != nil {
+		return false
+	}
+
+	setAccessTokenHeader(c, access.Token)
+	setAuthContext(c, identity, access.JTI)
+	return true
+}
+
+func setAccessTokenHeader(c *gin.Context, token string) {
+	if token == "" {
+		return
+	}
+
+	c.Header(auth.AccessTokenHeaderName, token)
+	c.Header("Access-Control-Expose-Headers", auth.AccessTokenHeaderName)
+}
+
+func setAuthContext(c *gin.Context, identity auth.TokenIdentity, jti string) {
+	c.Set("user_id", identity.UserID)
+	c.Set("role", identity.Role)
+	c.Set("role_id", identity.RoleID)
+	c.Set("jti", jti)
+}
+
+func setAuthContextFromClaims(c *gin.Context, claims jwt.MapClaims, jti string) {
+	if userID, ok := getUintClaim(claims, "user_id"); ok {
+		c.Set("user_id", userID)
+	}
+
+	if role, ok := claims["role"].(string); ok {
+		c.Set("role", role)
+	}
+
+	if roleID, ok := getUintClaim(claims, "role_id"); ok {
+		c.Set("role_id", roleID)
+	}
+
+	c.Set("jti", jti)
+}
+
+func shouldRefreshAccessToken(claims jwt.MapClaims) bool {
+	expValue, ok := claims["exp"]
+	if !ok {
+		return false
+	}
+
+	expTime, ok := parseUnixTimestamp(expValue)
+	if !ok {
+		return false
+	}
+
+	return time.Until(expTime) <= accessRefreshThreshold
+}
+
+func parseUnixTimestamp(value interface{}) (time.Time, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return time.Unix(int64(typed), 0), true
+	case float32:
+		return time.Unix(int64(typed), 0), true
+	case int:
+		return time.Unix(int64(typed), 0), true
+	case int64:
+		return time.Unix(typed, 0), true
+	case uint:
+		return time.Unix(int64(typed), 0), true
+	case uint64:
+		return time.Unix(int64(typed), 0), true
+	default:
+		return time.Time{}, false
+	}
+}
+
+func getStringClaim(claims jwt.MapClaims, key string) string {
+	value, ok := claims[key]
+	if !ok {
+		return ""
+	}
+
+	if typed, ok := value.(string); ok {
+		return typed
+	}
+
+	return ""
 }
 
 func getUintClaim(claims jwt.MapClaims, key string) (uint, bool) {

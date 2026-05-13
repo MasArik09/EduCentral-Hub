@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"backend/config"
+	"backend/internal/auth"
 	"backend/internal/handler"
 	"backend/internal/middleware"
 	"backend/internal/repository"
@@ -29,7 +30,8 @@ func main() {
 	router.Static("/uploads", "./uploads")
 
 	userRepo := repository.NewUserRepository(db)
-	authUsecase := usecase.NewAuthUsecase(userRepo)
+	tokenService := auth.NewTokenService(os.Getenv("JWT_SECRET"), auth.NewInMemoryTokenStore())
+	authUsecase := usecase.NewAuthUsecase(userRepo, tokenService)
 	authHandler := handler.NewAuthHandler(authUsecase)
 	userUsecase := usecase.NewUserUsecase(userRepo)
 	userHandler := handler.NewUserHandler(userUsecase)
@@ -64,25 +66,27 @@ func main() {
 	authGroup := router.Group("/api/auth")
 	authGroup.POST("/register", authHandler.Register)
 	authGroup.POST("/login", authHandler.Login)
+	authGroup.POST("/refresh", authHandler.Refresh)
+	authGroup.POST("/logout", middleware.JWTAuthMiddleware(tokenService), authHandler.Logout)
 
 	userGroup := router.Group("/api/users")
-	userGroup.POST("/profile-picture", middleware.JWTAuthMiddleware(), userHandler.UploadProfilePicture)
+	userGroup.POST("/profile-picture", middleware.JWTAuthMiddleware(tokenService), userHandler.UploadProfilePicture)
 
 	courseGroup := router.Group("/api/courses")
 	courseGroup.GET("/:id", courseHandler.GetCourseDetails)
-	courseGroup.POST("", middleware.JWTAuthMiddleware(), courseHandler.CreateCourse)
-	courseGroup.POST("/:id/enroll", middleware.JWTAuthMiddleware(), courseHandler.EnrollCourse)
-	courseGroup.POST("/:id/lessons", middleware.JWTAuthMiddleware(), lessonHandler.CreateLesson)
-	courseGroup.GET("/:id/lessons", middleware.JWTAuthMiddleware(), lessonHandler.ListLessonsByCourse)
-	courseGroup.POST(":id/assignments", middleware.JWTAuthMiddleware(), assignmentHandler.CreateAssignment)
-	courseGroup.POST("/:id/attendance", middleware.JWTAuthMiddleware(), attendanceHandler.MarkAttendance)
-	courseGroup.GET("/:id/my-attendance", middleware.JWTAuthMiddleware(), attendanceHandler.ListMyAttendance)
+	courseGroup.POST("", middleware.JWTAuthMiddleware(tokenService), courseHandler.CreateCourse)
+	courseGroup.POST("/:id/enroll", middleware.JWTAuthMiddleware(tokenService), courseHandler.EnrollCourse)
+	courseGroup.POST("/:id/lessons", middleware.JWTAuthMiddleware(tokenService), lessonHandler.CreateLesson)
+	courseGroup.GET("/:id/lessons", middleware.JWTAuthMiddleware(tokenService), lessonHandler.ListLessonsByCourse)
+	courseGroup.POST(":id/assignments", middleware.JWTAuthMiddleware(tokenService), assignmentHandler.CreateAssignment)
+	courseGroup.POST("/:id/attendance", middleware.JWTAuthMiddleware(tokenService), attendanceHandler.MarkAttendance)
+	courseGroup.GET("/:id/my-attendance", middleware.JWTAuthMiddleware(tokenService), attendanceHandler.ListMyAttendance)
 
 	lessonGroup := router.Group("/api/lessons")
-	lessonGroup.GET("/:lesson_id", middleware.JWTAuthMiddleware(), lessonHandler.GetLessonDetail)
+	lessonGroup.GET("/:lesson_id", middleware.JWTAuthMiddleware(tokenService), lessonHandler.GetLessonDetail)
 
 	assignmentGroup := router.Group("/api/assignments")
-	assignmentGroup.POST("/:id/submit", middleware.JWTAuthMiddleware(), assignmentHandler.SubmitAssignment)
+	assignmentGroup.POST("/:id/submit", middleware.JWTAuthMiddleware(tokenService), assignmentHandler.SubmitAssignment)
 
 	if err := router.Run(); err != nil {
 		log.Fatalf("server start failed: %v", err)

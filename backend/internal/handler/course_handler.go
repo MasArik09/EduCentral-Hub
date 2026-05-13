@@ -169,7 +169,7 @@ func isEnrollmentRoleAllowed(c *gin.Context, role string) bool {
 	if ok {
 		roleID, ok := roleIDValue.(uint)
 		if ok {
-			return roleID == 1 || roleID == 3
+			return roleID == 1 || roleID == 2
 		}
 	}
 
