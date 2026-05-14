@@ -27,6 +27,7 @@ func main() {
 	}
 
 	router := gin.Default()
+	router.Use(middleware.CORSMiddleware())
 	router.Static("/uploads", "./uploads")
 
 	userRepo := repository.NewUserRepository(db)
