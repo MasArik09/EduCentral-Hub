@@ -19,7 +19,7 @@ import (
 func main() {
 	db, err := config.InitDB()
 	if err != nil {
-		log.Fatalf("database init failed: %v", err)
+		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
 	if err := ensureUploadDirs(); err != nil {
